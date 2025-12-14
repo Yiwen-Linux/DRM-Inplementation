@@ -1,4 +1,4 @@
-function Feff = fun_ComputeEquivalentNodalForce(Mbe, Meb, Cbe, Ceb, Kbe, Keb, Ue, Uedot, Ueddot, InnerDof, OuterDof, t)
+function Feff = fun_ComputeEquivalentNodalForce(M, C, K, Ue, Uedot, Ueddot, nnodesDRM, InnerDof, OuterDof, t)
 %--------------------------------------------------------------------------
 % Originally written by Wenyang Zhang
 % Email: zwyll@ucla.edu
@@ -43,10 +43,28 @@ function Feff = fun_ComputeEquivalentNodalForce(Mbe, Meb, Cbe, Ceb, Kbe, Keb, Ue
 
 n = length(t);
 
+%--------------------------------------------------------------------------
+% initialization of the force vector
+Mbe = full(M(InnerDof,OuterDof));
+Meb = full(M(OuterDof,InnerDof));
+Cbe = full(C(InnerDof,OuterDof));
+Ceb = full(C(OuterDof,InnerDof));
+Kbe = full(K(InnerDof,OuterDof));
+Keb = full(K(OuterDof,InnerDof));
+
+% total number of DOFs for the DRM nodes, i.e., DOFs = 3 for each node 
+nGlDRMDof = 3*nnodesDRM;
+
 Feff = zeros(nGlDRMDof,n);
+linelength = 0;
 for i = 1:n
+    fprintf(repmat('\b',1,linelength));
+    linelength = fprintf('computing equivalent nodal force at time step %d/%d ', i, n);
+
     Feff(InnerDof,i) = -Mbe*Ueddot(OuterDof,i) - Cbe*Uedot(OuterDof,i) - Kbe*Ue(OuterDof,i);
     Feff(OuterDof,i) = Meb*Ueddot(InnerDof,i) + Ceb*Uedot(InnerDof,i) + Keb*Ue(InnerDof,i);
 end 
+
+fprintf('\n');
 
 end

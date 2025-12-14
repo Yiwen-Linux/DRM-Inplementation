@@ -24,7 +24,12 @@ function [M, C, K] = fun_Assembly_MCK(DRM_Node_Coords, ElementConnectivity, Elem
 %                                   column 2: part id of element
 %                                   column 3~10: 8 node number of cubic element
 %
-%       ElementData_DRM    : vector, element number of DRM layer
+%       ElementData_DRM    : neleDRM by 4 matrix
+%                                   column 1: DRM element number 
+%                                   column 2: mass density of the element
+%                                   column 3: Young's modulus of the
+%                                               element
+%                                   column 4: Poisson' ratio of the element
 %
 %       nnodesDRM          : number of DRM nodes (including inner and outer
 %                               DRM nodes)
@@ -38,7 +43,7 @@ function [M, C, K] = fun_Assembly_MCK(DRM_Node_Coords, ElementConnectivity, Elem
 %
 % OUTPUT:
 %       M, C, K   : nnodesDRM*3 by nnodesDRM matrix, global mass, damping
-%                       and stiffness matrix 
+%                       and stiffness matrix
 %
 %--------------------------------------------------------------------------
 
@@ -47,7 +52,7 @@ function [M, C, K] = fun_Assembly_MCK(DRM_Node_Coords, ElementConnectivity, Elem
 % reading gauss quadrature info
 [GaussQuad_coef, GaussQuad_wgt] = fun_Order3GaussQuadDataOrder;
 
-% total number of DOFs for the DRM nodes, i.e., DOFs = 3 for each node 
+% total number of DOFs for the DRM nodes, i.e., DOFs = 3 for each node
 nGlDRMDof = 3*nnodesDRM;
 
 % initialization of the mass, damping, and stiffness matrices
@@ -55,125 +60,128 @@ M = zeros(nGlDRMDof); C = zeros(nGlDRMDof); K = zeros(nGlDRMDof);
 
 %--------------------------------------------------------------------------
 % computing elemental matrices and assembling
+linelength = 0;
 for e = 1:length(ElementData_DRM)
-    
-    disp(e)
-    
-    DRM_Ele_Index = find(ElementConnectivity(:,1) == ElementData_DRM(e));
+    fprintf(repmat('\b',1,linelength));
+    linelength = fprintf('assembling elemental matrix %d/%d', e, ...
+        length(ElementData_DRM));
+
+    % mass density of the soil
+    El_rho = ElementData_DRM(e,2);
+    % Young's modulus of the soil
+    El_E = ElementData_DRM(e,3);
+    % Poisson's ratio of the soil
+    El_nu = ElementData_DRM(e,4);
+
+    % Lame's first parameter (shear modulus)
+    El_mu = El_E/2/(1+El_nu);
+    % Lame's second parameter
+    El_lambda = El_E *El_nu/(1+El_nu)/(1-2*El_nu);
+
+    DRM_Ele_Index = find(ElementConnectivity(:,1) == ElementData_DRM(e,1));
     ElementDof = ElementConnectivity(DRM_Ele_Index,3:end);
 
     [~,rank1] = sort(ElementDof);
     [~,rank2] = sort(rank1);
     DRM_Node_Index = find(ismember(DRM_Node_Coords(:,1), ElementDof));
     DRM_Node_Index = DRM_Node_Index(rank2);
-    
+
     ElementXY = DRM_Node_Coords(DRM_Node_Index,2:4);
-    
+
     ElementDof3GlDofu1  =                 DRM_Node_Index;
     ElementDof3GlDofu2  =     nnodesDRM + DRM_Node_Index;
     ElementDof3GlDofu3  =   nnodesDRM*2 + DRM_Node_Index;
-        
+
     %Mu1u1
     M_local_u1u1 = zeros(NEN);
-    
+
     %Mu2u2
-    M_local_u2u2 = zeros(NEN);    
-    
+    M_local_u2u2 = zeros(NEN);
+
     %Mu3u3
-    M_local_u3u3 = zeros(NEN);    
+    M_local_u3u3 = zeros(NEN);
     %--------------------------------------------------------------------------
     % C matrix
     %--------------------------------------------------------------------------
     %Cu1u1
-    C_local_u1u1 = zeros(NEN); 
-    
+    C_local_u1u1 = zeros(NEN);
+
     %Cu1u2
     C_local_u1u2 = zeros(NEN);
-    
+
     %Cu1u3
     C_local_u1u3 = zeros(NEN);
-    
+
     %Cu2u1
-    C_local_u2u1 = zeros(NEN); 
-    
+    C_local_u2u1 = zeros(NEN);
+
     %Cu2u2
-    C_local_u2u2 = zeros(NEN);  
-    
+    C_local_u2u2 = zeros(NEN);
+
     %Cu2u3
     C_local_u2u3 = zeros(NEN);
-    
+
     %Cu3u1
-    C_local_u3u1 = zeros(NEN); 
-    
+    C_local_u3u1 = zeros(NEN);
+
     %Cu3u2
-    C_local_u3u2 = zeros(NEN);  
-    
+    C_local_u3u2 = zeros(NEN);
+
     %Cu3u3
     C_local_u3u3 = zeros(NEN);
     %--------------------------------------------------------------------------
     % K matrix
     %--------------------------------------------------------------------------
     %Ku1u1
-    K_local_u1u1 = zeros(NEN); 
-    
+    K_local_u1u1 = zeros(NEN);
+
     %Ku1u2
     K_local_u1u2 = zeros(NEN);
-    
+
     %Ku1u3
     K_local_u1u3 = zeros(NEN);
-    
+
     %Ku2u1
-    K_local_u2u1 = zeros(NEN); 
-    
+    K_local_u2u1 = zeros(NEN);
+
     %Ku2u2
-    K_local_u2u2 = zeros(NEN);  
-    
+    K_local_u2u2 = zeros(NEN);
+
     %Ku2u3
     K_local_u2u3 = zeros(NEN);
-    
+
     %Ku3u1
-    K_local_u3u1 = zeros(NEN); 
-    
+    K_local_u3u1 = zeros(NEN);
+
     %Ku3u2
-    K_local_u3u2 = zeros(NEN);  
-    
+    K_local_u3u2 = zeros(NEN);
+
     %Ku3u3
     K_local_u3u3 = zeros(NEN);
 
-    %--------------------------------------------------------------  
+    %--------------------------------------------------------------
     % start integration for mass and stiffness matrices
     for i_GQ = 1:QuadOrder
-        
+
         xi_GQ = GaussQuad_coef(i_GQ); wt_xi = GaussQuad_wgt(i_GQ);
-        
+
         for j_GQ = 1:QuadOrder
-            
+
             eta_GQ = GaussQuad_coef(j_GQ); wt_eta = GaussQuad_wgt(j_GQ);
-                  
+
             for k_GQ = 1:QuadOrder
-            
+
                 mu_GQ = GaussQuad_coef(k_GQ); wt_mu = GaussQuad_wgt(k_GQ);
-            
+
                 [SF, DSFDxieta] = fun_ShapeFunction_3D(xi_GQ, eta_GQ, mu_GQ);
-            
-            	Jacobian = DSFDxieta'*ElementXY; J = det(Jacobian);
-            
+
+                Jacobian = DSFDxieta'*ElementXY; J = det(Jacobian);
+
                 DSFDX = Jacobian\(DSFDxieta'); DSFDX = DSFDX';
-            
+
                 x1 = SF'*ElementXY(:,1);
                 x2 = SF'*ElementXY(:,2);
                 x3 = SF'*ElementXY(:,3);
-                           
-                % the density of the soil
-                El_rho = 2000;
-                % the poisson's ratio of the soil
-                El_nu = 2000;
-                % the shear wave velocity of the soil
-                vs = 200;
-
-                El_mu = El_rho*vs^2;
-                El_E = El_mu*2*(1+El_nu);
-                El_lambda = El_E *El_nu/(1+El_nu)/(1-2*El_nu);
 
                 %--------------------------------------------------------------
                 % M matrix
@@ -184,12 +192,12 @@ for e = 1:length(ElementData_DRM)
 
                 %Mu2u2
                 M_local_u2u2 = M_local_u2u2...
-                    + El_rho*(SF)*SF'*J*wt_xi*wt_eta*wt_mu; 
-                
+                    + El_rho*(SF)*SF'*J*wt_xi*wt_eta*wt_mu;
+
                 %Mu3u3
                 M_local_u3u3 = M_local_u3u3...
-                    + El_rho*(SF)*SF'*J*wt_xi*wt_eta*wt_mu; 
-                
+                    + El_rho*(SF)*SF'*J*wt_xi*wt_eta*wt_mu;
+
                 %--------------------------------------------------------------
                 % K matrix
                 %--------------------------------------------------------------
@@ -203,7 +211,7 @@ for e = 1:length(ElementData_DRM)
                 K_local_u1u2 = K_local_u1u2...
                     + (El_lambda*DSFDX(:,1)*DSFDX(:,2)'...
                     + El_mu*DSFDX(:,2)*DSFDX(:,1)')*J*wt_xi*wt_eta*wt_mu;
-                
+
                 % Ku1u3
                 K_local_u1u3 = K_local_u1u3...
                     + (El_lambda*DSFDX(:,1)*DSFDX(:,3)'...
@@ -219,7 +227,7 @@ for e = 1:length(ElementData_DRM)
                     + (El_mu*DSFDX(:,1)*DSFDX(:,1)'...
                     + (El_lambda + 2*El_mu)*DSFDX(:,2)*DSFDX(:,2)'...
                     +  El_mu*DSFDX(:,3)*DSFDX(:,3)')*J*wt_xi*wt_eta*wt_mu;
-                
+
                 % Ku2u3
                 K_local_u2u3 = K_local_u2u3...
                     + (El_lambda*DSFDX(:,2)*DSFDX(:,3)'...
@@ -233,13 +241,13 @@ for e = 1:length(ElementData_DRM)
                 % Ku3u2
                 K_local_u3u2 = K_local_u3u2...
                     + (El_lambda*DSFDX(:,3)*DSFDX(:,2)'...
-                    + El_mu*DSFDX(:,2)*DSFDX(:,3)')*J*wt_xi*wt_eta*wt_mu;      
-                
+                    + El_mu*DSFDX(:,2)*DSFDX(:,3)')*J*wt_xi*wt_eta*wt_mu;
+
                 % Ku3u3
                 K_local_u3u3 = K_local_u3u3...
                     + (El_mu*DSFDX(:,1)*DSFDX(:,1)'...
                     + El_mu*DSFDX(:,2)*DSFDX(:,2)'...
-                    + (El_lambda + 2*El_mu)*DSFDX(:,3)*DSFDX(:,3)')*J*wt_xi*wt_eta*wt_mu;     
+                    + (El_lambda + 2*El_mu)*DSFDX(:,3)*DSFDX(:,3)')*J*wt_xi*wt_eta*wt_mu;
             end
         end
     end
@@ -260,92 +268,99 @@ for e = 1:length(ElementData_DRM)
     %Mu1u1
     M(ElementDof3GlDofu1,ElementDof3GlDofu1) = ...
         M(ElementDof3GlDofu1,ElementDof3GlDofu1) + M_local_u1u1;
-    
+
     %Mu2u2
     M(ElementDof3GlDofu2,ElementDof3GlDofu2) = ...
         M(ElementDof3GlDofu2,ElementDof3GlDofu2) + M_local_u2u2;
-    
+
     %Mu3u3
     M(ElementDof3GlDofu3,ElementDof3GlDofu3) = ...
         M(ElementDof3GlDofu3,ElementDof3GlDofu3) + M_local_u3u3;
-    
+
     %----------------------------------------------------------------------
     % C matrix
     %----------------------------------------------------------------------
     % Cu1u1
     C(ElementDof3GlDofu1,ElementDof3GlDofu1) = ...
         C(ElementDof3GlDofu1,ElementDof3GlDofu1) + C_local_u1u1;
-    
+
     % Cu1u2
     C(ElementDof3GlDofu1,ElementDof3GlDofu2) = ...
         C(ElementDof3GlDofu1,ElementDof3GlDofu2) + C_local_u1u2;
-    
+
     % Cu1u3
     C(ElementDof3GlDofu1,ElementDof3GlDofu3) = ...
         C(ElementDof3GlDofu1,ElementDof3GlDofu3) + C_local_u1u3;
-    
+
     % Cu2u1
     C(ElementDof3GlDofu2,ElementDof3GlDofu1) = ...
         C(ElementDof3GlDofu2,ElementDof3GlDofu1) + C_local_u2u1;
-    
+
     % Cu2u2
     C(ElementDof3GlDofu2,ElementDof3GlDofu2) = ...
-        C(ElementDof3GlDofu2,ElementDof3GlDofu2) + C_local_u2u2;   
-    
+        C(ElementDof3GlDofu2,ElementDof3GlDofu2) + C_local_u2u2;
+
     % Cu2u3
     C(ElementDof3GlDofu2,ElementDof3GlDofu3) = ...
-        C(ElementDof3GlDofu2,ElementDof3GlDofu3) + C_local_u2u3;  
-    
+        C(ElementDof3GlDofu2,ElementDof3GlDofu3) + C_local_u2u3;
+
     % Cu3u1
     C(ElementDof3GlDofu3,ElementDof3GlDofu1) = ...
         C(ElementDof3GlDofu3,ElementDof3GlDofu1) + C_local_u3u1;
-    
+
     % Cu3u2
     C(ElementDof3GlDofu3,ElementDof3GlDofu2) = ...
-        C(ElementDof3GlDofu3,ElementDof3GlDofu2) + C_local_u3u2;   
-    
+        C(ElementDof3GlDofu3,ElementDof3GlDofu2) + C_local_u3u2;
+
     % Cu3u3
     C(ElementDof3GlDofu3,ElementDof3GlDofu3) = ...
-        C(ElementDof3GlDofu3,ElementDof3GlDofu3) + C_local_u3u3; 
-    
+        C(ElementDof3GlDofu3,ElementDof3GlDofu3) + C_local_u3u3;
+
     %----------------------------------------------------------------------
     % K matrix
     %----------------------------------------------------------------------
     % Ku1u1
     K(ElementDof3GlDofu1,ElementDof3GlDofu1) = ...
         K(ElementDof3GlDofu1,ElementDof3GlDofu1) + K_local_u1u1;
-    
+
     % Ku1u2
     K(ElementDof3GlDofu1,ElementDof3GlDofu2) = ...
         K(ElementDof3GlDofu1,ElementDof3GlDofu2) + K_local_u1u2;
-    
+
     % Ku1u3
     K(ElementDof3GlDofu1,ElementDof3GlDofu3) = ...
         K(ElementDof3GlDofu1,ElementDof3GlDofu3) + K_local_u1u3;
-    
+
     % Ku2u1
     K(ElementDof3GlDofu2,ElementDof3GlDofu1) = ...
         K(ElementDof3GlDofu2,ElementDof3GlDofu1) + K_local_u2u1;
-    
+
     % Ku2u2
     K(ElementDof3GlDofu2,ElementDof3GlDofu2) = ...
-        K(ElementDof3GlDofu2,ElementDof3GlDofu2) + K_local_u2u2;   
-    
+        K(ElementDof3GlDofu2,ElementDof3GlDofu2) + K_local_u2u2;
+
     % Ku2u3
     K(ElementDof3GlDofu2,ElementDof3GlDofu3) = ...
-        K(ElementDof3GlDofu2,ElementDof3GlDofu3) + K_local_u2u3;  
-    
+        K(ElementDof3GlDofu2,ElementDof3GlDofu3) + K_local_u2u3;
+
     % Ku3u1
     K(ElementDof3GlDofu3,ElementDof3GlDofu1) = ...
         K(ElementDof3GlDofu3,ElementDof3GlDofu1) + K_local_u3u1;
-    
+
     % Ku3u2
     K(ElementDof3GlDofu3,ElementDof3GlDofu2) = ...
-        K(ElementDof3GlDofu3,ElementDof3GlDofu2) + K_local_u3u2;   
-    
+        K(ElementDof3GlDofu3,ElementDof3GlDofu2) + K_local_u3u2;
+
     % Ku3u3
     K(ElementDof3GlDofu3,ElementDof3GlDofu3) = ...
-        K(ElementDof3GlDofu3,ElementDof3GlDofu3) + K_local_u3u3;    
+        K(ElementDof3GlDofu3,ElementDof3GlDofu3) + K_local_u3u3;
 end
+
+fprintf('\n');
+
+% sparse matrix
+M = sparse(M);
+C = sparse(C);
+K = sparse(K);
 
 end

@@ -40,4 +40,8 @@ aC = AC\[xi1;xi2];
 
 %aC = [0;0]; undamped system
 
+fprintf('damping ratio: xi1 = %f, x2 = %f\n', xi1, xi2);
+fprintf('frequency of interest: f1 = %f, f2 = %f\n', f1, f2);
+fprintf('Rayleigh Damping Coefficients: aC = [%f; %f]\n', aC(1), aC(2));
+
 end

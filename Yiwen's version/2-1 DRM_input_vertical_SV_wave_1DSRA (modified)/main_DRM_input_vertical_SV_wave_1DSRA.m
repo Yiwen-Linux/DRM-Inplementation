@@ -1,4 +1,4 @@
-clc; clear; close all;
+clc; clear; close all; tic
 %--------------------------------------------------------------------------
 % Originally written by Wenyang Zhang
 % Email: zwyll@ucla.edu
@@ -30,8 +30,6 @@ aC = fun_RayleighDamping;
 %--------------------------------------------------------------------------
 % Gauss Quadrature order
 QuadOrder = 3;
-% number of nodes per elemens
-NEN = 8;
 
 %--------------------------------------------------------------------------
 % reading mesh info from the input file
@@ -54,7 +52,7 @@ DRM_Node_Coords = NodeXYCoordinate(DRM_Node_Coords,:);
 
 %--------------------------------------------------------------------------
 % computing elemental matrices and assembling
-[M, C, K] = fun_Assembly_MCK(DRM_Node_Coords, ElementConnectivity, ElementData_DRM, nnodesDRM, aC, QuadOrder, NEN);
+[M, C, K] = fun_Assembly_MCK(DRM_Node_Coords, ElementConnectivity, ElementData_DRM, nnodesDRM, aC, QuadOrder);
 
 disp('done with assembly')
 
@@ -67,30 +65,35 @@ DRM_Outer_Node_Seq = find(ismember(DRM_Node_Coords(:,1), NodeData_DRM_outer));
 InnerDof = [DRM_Inner_Node_Seq; DRM_Inner_Node_Seq+nnodesDRM; DRM_Inner_Node_Seq+nnodesDRM*2];
 OuterDof = [DRM_Outer_Node_Seq; DRM_Outer_Node_Seq+nnodesDRM; DRM_Outer_Node_Seq+nnodesDRM*2];
 
-%--------------------------------------------------------------------------
-% initialization of the force vector
-Mbe = M(InnerDof,OuterDof);
-Meb = M(OuterDof,InnerDof);
-Cbe = C(InnerDof,OuterDof);
-Ceb = C(OuterDof,InnerDof);
-Kbe = K(InnerDof,OuterDof);
-Keb = K(OuterDof,InnerDof);
-
 % %-------------------------------------------------------------------------- 
 % compute/load/assemble nodal response for all DRM nodes
 % YOU MUST MODIFY FUNCTION "fun_NodalResponseAssembly"
 %--------------------------------------------------------------------------
 [Ue, Uedot, Ueddot, t] = fun_NodalResponseAssembly(nnodesDRM, DRM_Node_Coords);
 
+disp('done with nodal response assemble')
+
+% %-------------------------------------------------------------------------- 
 % compute the equivalent nodal forces for all DRM nodes
-Feff = fun_ComputeEquivalentNodalForce(Mbe, Meb, Cbe, Ceb, Kbe, Keb, Ue, Uedot, Ueddot, InnerDof, OuterDof, t);
+Feff = fun_ComputeEquivalentNodalForce(M, C, K, Ue, Uedot, Ueddot, nnodesDRM, InnerDof, OuterDof, t);
+
+disp('done with equivalent nodal force calculation')
 
 
 %% equivalent force 
 % write the files that include the equivalent nodal forces for all DRM
-%   nodes in 3 directions (Fx, Fy, Fz)
-fun_WriteNodalForcestoLSDYNAinput(nnodesDRM,DRM_Node_Data,t,Feff);
+%   nodes in 3 directions (Fx, Fy, Fz). you can save or load required
+%   varibales from EquF.mat from previous runs.
 
+tic
+load EquF.mat
+ 
+disp('exporting equivalent force to LS-DYNA keyword file...')
 
+fun_WriteNodalForcestoLSDYNAinput(nnodesDRM,DRM_Node_Data,t,Feff,10000);
 
+%   save('EquF.mat', 'nnodesDRM', 'DRM_Node_Data', 't', 'Feff', '-v7.3');
+
+disp('program finished')
+toc
 

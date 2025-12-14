@@ -1,14 +1,14 @@
-function [M, C, K] = fun_Assembly_MCK(DRM_Node_Coords, ElementConnectivity, ElementData_DRM, nnodesDRM, aC, QuadOrder, NEN)
+function [M, C, K] = fun_Assembly_MCK(DRM_Node_Coords, ElementConnectivity, ElementData_DRM, nnodesDRM, aC, QuadOrder)
 %--------------------------------------------------------------------------
 % Originally written by Wenyang Zhang
 % Email: zwyll@ucla.edu
 % Data : 09/12/2018
 %
 % Modified by Yiwen
-% Data : 11/25/2025
+% Data : 12/01/2025
 %
 % This code assembles M, C and K for the LS-DYNA big model using Gaussian
-%   Quadrature
+%   Quadrature. Elements with repeated node numbers are avaialbel now.
 %
 % INPUT:
 %       DRM_Node_Coords   : nnodesDRM by 6 matrix, nodal coordinates info
@@ -25,7 +25,7 @@ function [M, C, K] = fun_Assembly_MCK(DRM_Node_Coords, ElementConnectivity, Elem
 %                                   column 3~10: 8 node number of cubic element
 %
 %       ElementData_DRM    : neleDRM by 4 matrix
-%                                   column 1: DRM element number 
+%                                   column 1: DRM element number
 %                                   column 2: mass density of the element
 %                                   column 3: Young's modulus of the
 %                                               element
@@ -38,8 +38,6 @@ function [M, C, K] = fun_Assembly_MCK(DRM_Node_Coords, ElementConnectivity, Elem
 %
 %       QuadOrder          : Gauss Quadrature order
 %
-%       NEN                : number of nodes per elemens
-%
 %
 % OUTPUT:
 %       M, C, K   : nnodesDRM*3 by nnodesDRM matrix, global mass, damping
@@ -51,6 +49,7 @@ function [M, C, K] = fun_Assembly_MCK(DRM_Node_Coords, ElementConnectivity, Elem
 %--------------------------------------------------------------------------
 % reading gauss quadrature info
 [GaussQuad_coef, GaussQuad_wgt] = fun_Order3GaussQuadDataOrder;
+[Tri_pt, Tri_wgt] = fun_Order2TriangleGaussQuadDataOrder;
 
 % total number of DOFs for the DRM nodes, i.e., DOFs = 3 for each node
 nGlDRMDof = 3*nnodesDRM;
@@ -60,8 +59,10 @@ M = zeros(nGlDRMDof); C = zeros(nGlDRMDof); K = zeros(nGlDRMDof);
 
 %--------------------------------------------------------------------------
 % computing elemental matrices and assembling
+linelength = 0;
 for e = 1:length(ElementData_DRM)
-    fprintf('assembling elemental matrix %d/%d\n', e, ...
+    fprintf(repmat('\b',1,linelength));
+    linelength = fprintf('assembling elemental matrix %d/%d', e, ...
         length(ElementData_DRM));
 
     % mass density of the soil
@@ -78,6 +79,28 @@ for e = 1:length(ElementData_DRM)
 
     DRM_Ele_Index = find(ElementConnectivity(:,1) == ElementData_DRM(e,1));
     ElementDof = ElementConnectivity(DRM_Ele_Index,3:end);
+
+    % Check Wedge6 elements
+    if length(unique(ElementDof))==6
+        NEN = 6;
+
+        % degradation pattern : 5=6, 7=8
+        if (ElementDof(5)==ElementDof(6) && ElementDof(7)==ElementDof(8))
+            ElementDof = [ ElementDof(1), ...
+                ElementDof(2), ...
+                ElementDof(5), ...
+                ElementDof(4), ...
+                ElementDof(3), ...
+                ElementDof(7)];
+        else
+            error('element %d: unreconganizable degredation pattern', e);
+        end
+
+    elseif length(unique(ElementDof))==8
+        NEN = 8;
+    else
+        error('element %d has %d nodes. the code cannot process this element', e, length(unique(ElementDof)));
+    end
 
     [~,rank1] = sort(ElementDof);
     [~,rank2] = sort(rank1);
@@ -159,42 +182,127 @@ for e = 1:length(ElementData_DRM)
 
     %--------------------------------------------------------------
     % start integration for mass and stiffness matrices
-    for i_GQ = 1:QuadOrder
+    if NEN ==8 % 8 node hex element
 
-        xi_GQ = GaussQuad_coef(i_GQ); wt_xi = GaussQuad_wgt(i_GQ);
+        for i_GQ = 1:QuadOrder
 
-        for j_GQ = 1:QuadOrder
+            xi_GQ = GaussQuad_coef(i_GQ); wt_xi = GaussQuad_wgt(i_GQ);
 
-            eta_GQ = GaussQuad_coef(j_GQ); wt_eta = GaussQuad_wgt(j_GQ);
+            for j_GQ = 1:QuadOrder
+
+                eta_GQ = GaussQuad_coef(j_GQ); wt_eta = GaussQuad_wgt(j_GQ);
+
+                for k_GQ = 1:QuadOrder
+
+                    mu_GQ = GaussQuad_coef(k_GQ); wt_mu = GaussQuad_wgt(k_GQ);
+
+                    [SF, DSFDxieta] = fun_ShapeFunction_3D(xi_GQ, eta_GQ, mu_GQ);
+
+                    Jacobian = DSFDxieta'*ElementXY; J = det(Jacobian);
+
+                    DSFDX = Jacobian\(DSFDxieta'); DSFDX = DSFDX';
+
+                    %--------------------------------------------------------------
+                    % M matrix
+                    %--------------------------------------------------------------
+                    %Mu1u1
+                    M_local_u1u1 = M_local_u1u1...
+                        + El_rho*(SF)*SF'*J*wt_xi*wt_eta*wt_mu;
+
+                    %Mu2u2
+                    M_local_u2u2 = M_local_u2u2...
+                        + El_rho*(SF)*SF'*J*wt_xi*wt_eta*wt_mu;
+
+                    %Mu3u3
+                    M_local_u3u3 = M_local_u3u3...
+                        + El_rho*(SF)*SF'*J*wt_xi*wt_eta*wt_mu;
+
+                    %--------------------------------------------------------------
+                    % K matrix
+                    %--------------------------------------------------------------
+                    % Ku1u1
+                    K_local_u1u1 = K_local_u1u1...
+                        + ((El_lambda + 2*El_mu)*DSFDX(:,1)*DSFDX(:,1)'...
+                        + El_mu*DSFDX(:,2)*DSFDX(:,2)'....
+                        + El_mu*DSFDX(:,3)*DSFDX(:,3)')*J*wt_xi*wt_eta*wt_mu;
+
+                    % Ku1u2
+                    K_local_u1u2 = K_local_u1u2...
+                        + (El_lambda*DSFDX(:,1)*DSFDX(:,2)'...
+                        + El_mu*DSFDX(:,2)*DSFDX(:,1)')*J*wt_xi*wt_eta*wt_mu;
+
+                    % Ku1u3
+                    K_local_u1u3 = K_local_u1u3...
+                        + (El_lambda*DSFDX(:,1)*DSFDX(:,3)'...
+                        + El_mu*DSFDX(:,3)*DSFDX(:,1)')*J*wt_xi*wt_eta*wt_mu;
+
+                    % Ku2u1
+                    K_local_u2u1 = K_local_u2u1...
+                        + (El_lambda*DSFDX(:,2)*DSFDX(:,1)'...
+                        + El_mu*DSFDX(:,1)*DSFDX(:,2)')*J*wt_xi*wt_eta*wt_mu;
+
+                    % Ku2u2
+                    K_local_u2u2 = K_local_u2u2...
+                        + (El_mu*DSFDX(:,1)*DSFDX(:,1)'...
+                        + (El_lambda + 2*El_mu)*DSFDX(:,2)*DSFDX(:,2)'...
+                        +  El_mu*DSFDX(:,3)*DSFDX(:,3)')*J*wt_xi*wt_eta*wt_mu;
+
+                    % Ku2u3
+                    K_local_u2u3 = K_local_u2u3...
+                        + (El_lambda*DSFDX(:,2)*DSFDX(:,3)'...
+                        + El_mu*DSFDX(:,3)*DSFDX(:,2)')*J*wt_xi*wt_eta*wt_mu;
+
+                    % Ku3u1
+                    K_local_u3u1 = K_local_u3u1...
+                        + (El_lambda*DSFDX(:,3)*DSFDX(:,1)'...
+                        + El_mu*DSFDX(:,1)*DSFDX(:,3)')*J*wt_xi*wt_eta*wt_mu;
+
+                    % Ku3u2
+                    K_local_u3u2 = K_local_u3u2...
+                        + (El_lambda*DSFDX(:,3)*DSFDX(:,2)'...
+                        + El_mu*DSFDX(:,2)*DSFDX(:,3)')*J*wt_xi*wt_eta*wt_mu;
+
+                    % Ku3u3
+                    K_local_u3u3 = K_local_u3u3...
+                        + (El_mu*DSFDX(:,1)*DSFDX(:,1)'...
+                        + El_mu*DSFDX(:,2)*DSFDX(:,2)'...
+                        + (El_lambda + 2*El_mu)*DSFDX(:,3)*DSFDX(:,3)')*J*wt_xi*wt_eta*wt_mu;
+                end
+            end
+        end
+
+    elseif NEN == 6 % Wedge 6 element
+
+        for i_GQ = 1:QuadOrder
+
+            xi_GQ = Tri_pt(i_GQ,1); eta_GQ =  Tri_pt(i_GQ,2);
+
+            wt_tri = Tri_wgt(i_GQ);
 
             for k_GQ = 1:QuadOrder
 
                 mu_GQ = GaussQuad_coef(k_GQ); wt_mu = GaussQuad_wgt(k_GQ);
 
-                [SF, DSFDxieta] = fun_ShapeFunction_3D(xi_GQ, eta_GQ, mu_GQ);
+                [SF, DSFDxieta] = fun_ShapeFunction_3D_wedge6(xi_GQ, eta_GQ, mu_GQ);
 
                 Jacobian = DSFDxieta'*ElementXY; J = det(Jacobian);
 
                 DSFDX = Jacobian\(DSFDxieta'); DSFDX = DSFDX';
-
-                x1 = SF'*ElementXY(:,1);
-                x2 = SF'*ElementXY(:,2);
-                x3 = SF'*ElementXY(:,3);
 
                 %--------------------------------------------------------------
                 % M matrix
                 %--------------------------------------------------------------
                 %Mu1u1
                 M_local_u1u1 = M_local_u1u1...
-                    + El_rho*(SF)*SF'*J*wt_xi*wt_eta*wt_mu;
+                    + El_rho*(SF)*SF'*J*wt_tri*wt_mu;
 
                 %Mu2u2
                 M_local_u2u2 = M_local_u2u2...
-                    + El_rho*(SF)*SF'*J*wt_xi*wt_eta*wt_mu;
+                    + El_rho*(SF)*SF'*J*wt_tri*wt_mu;
 
                 %Mu3u3
                 M_local_u3u3 = M_local_u3u3...
-                    + El_rho*(SF)*SF'*J*wt_xi*wt_eta*wt_mu;
+                    + El_rho*(SF)*SF'*J*wt_tri*wt_mu;
 
                 %--------------------------------------------------------------
                 % K matrix
@@ -203,52 +311,53 @@ for e = 1:length(ElementData_DRM)
                 K_local_u1u1 = K_local_u1u1...
                     + ((El_lambda + 2*El_mu)*DSFDX(:,1)*DSFDX(:,1)'...
                     + El_mu*DSFDX(:,2)*DSFDX(:,2)'....
-                    + El_mu*DSFDX(:,3)*DSFDX(:,3)')*J*wt_xi*wt_eta*wt_mu;
+                    + El_mu*DSFDX(:,3)*DSFDX(:,3)')*J*wt_tri*wt_mu;
 
                 % Ku1u2
                 K_local_u1u2 = K_local_u1u2...
                     + (El_lambda*DSFDX(:,1)*DSFDX(:,2)'...
-                    + El_mu*DSFDX(:,2)*DSFDX(:,1)')*J*wt_xi*wt_eta*wt_mu;
+                    + El_mu*DSFDX(:,2)*DSFDX(:,1)')*J*wt_tri*wt_mu;
 
                 % Ku1u3
                 K_local_u1u3 = K_local_u1u3...
                     + (El_lambda*DSFDX(:,1)*DSFDX(:,3)'...
-                    + El_mu*DSFDX(:,3)*DSFDX(:,1)')*J*wt_xi*wt_eta*wt_mu;
+                    + El_mu*DSFDX(:,3)*DSFDX(:,1)')*J*wt_tri*wt_mu;
 
                 % Ku2u1
                 K_local_u2u1 = K_local_u2u1...
                     + (El_lambda*DSFDX(:,2)*DSFDX(:,1)'...
-                    + El_mu*DSFDX(:,1)*DSFDX(:,2)')*J*wt_xi*wt_eta*wt_mu;
+                    + El_mu*DSFDX(:,1)*DSFDX(:,2)')*J*wt_tri*wt_mu;
 
                 % Ku2u2
                 K_local_u2u2 = K_local_u2u2...
                     + (El_mu*DSFDX(:,1)*DSFDX(:,1)'...
                     + (El_lambda + 2*El_mu)*DSFDX(:,2)*DSFDX(:,2)'...
-                    +  El_mu*DSFDX(:,3)*DSFDX(:,3)')*J*wt_xi*wt_eta*wt_mu;
+                    +  El_mu*DSFDX(:,3)*DSFDX(:,3)')*J*wt_tri*wt_mu;
 
                 % Ku2u3
                 K_local_u2u3 = K_local_u2u3...
                     + (El_lambda*DSFDX(:,2)*DSFDX(:,3)'...
-                    + El_mu*DSFDX(:,3)*DSFDX(:,2)')*J*wt_xi*wt_eta*wt_mu;
+                    + El_mu*DSFDX(:,3)*DSFDX(:,2)')*J*wt_tri*wt_mu;
 
                 % Ku3u1
                 K_local_u3u1 = K_local_u3u1...
                     + (El_lambda*DSFDX(:,3)*DSFDX(:,1)'...
-                    + El_mu*DSFDX(:,1)*DSFDX(:,3)')*J*wt_xi*wt_eta*wt_mu;
+                    + El_mu*DSFDX(:,1)*DSFDX(:,3)')*J*wt_tri*wt_mu;
 
                 % Ku3u2
                 K_local_u3u2 = K_local_u3u2...
                     + (El_lambda*DSFDX(:,3)*DSFDX(:,2)'...
-                    + El_mu*DSFDX(:,2)*DSFDX(:,3)')*J*wt_xi*wt_eta*wt_mu;
+                    + El_mu*DSFDX(:,2)*DSFDX(:,3)')*J*wt_tri*wt_mu;
 
                 % Ku3u3
                 K_local_u3u3 = K_local_u3u3...
                     + (El_mu*DSFDX(:,1)*DSFDX(:,1)'...
                     + El_mu*DSFDX(:,2)*DSFDX(:,2)'...
-                    + (El_lambda + 2*El_mu)*DSFDX(:,3)*DSFDX(:,3)')*J*wt_xi*wt_eta*wt_mu;
+                    + (El_lambda + 2*El_mu)*DSFDX(:,3)*DSFDX(:,3)')*J*wt_tri*wt_mu;
             end
         end
     end
+
     %--------------------------------------------------------------
     % C matrix (Rayleigh damping)
     %--------------------------------------------------------------
@@ -353,5 +462,12 @@ for e = 1:length(ElementData_DRM)
     K(ElementDof3GlDofu3,ElementDof3GlDofu3) = ...
         K(ElementDof3GlDofu3,ElementDof3GlDofu3) + K_local_u3u3;
 end
+
+fprintf('\n');
+
+% sparse matrix
+M = sparse(M);
+C = sparse(C);
+K = sparse(K);
 
 end

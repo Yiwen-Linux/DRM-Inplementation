@@ -61,8 +61,11 @@ Uedot = zeros(nGlDRMDof,n);
 Ue = zeros(nGlDRMDof,n);
 
 % computing the response for all DRM nodes
+linelength = 0;
 for i = 1:n
-    fprintf("time step %d/%d\n", i, n);
+    fprintf(repmat('\b',1,linelength));
+    linelength = fprintf('nodal response assembly: time step %d/%d', i, n);
+
     for j = 1:nnodesDRM 
         coords = DRM_Node_Coords(j,2:4);        
         node_loc = find(NodeXYSoilColl_SC(:,3)==coords(3));
@@ -85,5 +88,7 @@ for i = 1:n
         Ue(j+nnodesDRM*2,i) = W(1);
     end       
 end
+
+fprintf('\n');
 
 end

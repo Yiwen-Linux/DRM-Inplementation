@@ -5,7 +5,7 @@ function fun_WriteNodalForcestoLSDYNAinput(nnodesDRM,DRM_Node_Data,t,Feff)
 % Data : 09/12/2018
 %
 % Modified by Yiwen
-% Data : 11/25/2025
+% Data : 12/01/2025
 %
 % This code writes DRM equivalent nodal forces to .txt file
 %
@@ -27,8 +27,11 @@ function fun_WriteNodalForcestoLSDYNAinput(nnodesDRM,DRM_Node_Data,t,Feff)
 
 mkdir('Files need to be imported into LS-DYNA');
 n = length(t);
-
+linelength = 0;
 for i = 1:nnodesDRM
+    fprintf(repmat('\b',1,linelength));
+    linelength = fprintf('writing equivalent nodal force %d/%d', i, nnodesDRM);
+
     OutputName = sprintf('Files need to be imported into LS-DYNA/EqNodalForceInfo%d_x.txt',i);
     fid = fopen(OutputName,'wt');
     fprintf(fid,'*DEFINE_CURVE\n');
@@ -57,10 +60,15 @@ for i = 1:nnodesDRM
     fclose(fid);      
 end
 
+fprintf('\n');
+disp('writing equivalent nodal force files completed')
+
 % writing the LS-DYNA keywor files to include the files for equivalent
-% nodal forces curves
+%   nodal forces curves
+disp('writing LS-DYNA include files')
+
 fid = fopen('Files need to be imported into LS-DYNA/IncludeInfo.txt','wt');
-for i = 1:nnodesDRM 
+for i = 1:nnodesDRM
     fprintf(fid,'*INCLUDE\n');
     fprintf(fid,' EqNodalForceInfo%d_x.txt\n',i);
     fprintf(fid,'*INCLUDE\n');
@@ -69,7 +77,11 @@ for i = 1:nnodesDRM
     fprintf(fid,' EqNodalForceInfo%d_z.txt\n',i);
 end
 
+disp('writing LS-DYNA include files completed');
+
 % writing the LS-DYNA files to define nodal forces as *LOAD_NODE_POINT
+disp('writing LS-DYNA nodal force definition')
+
 fid = fopen('Files need to be imported into LS-DYNA/LoadInfo.txt','wt');
 fprintf(fid,'*LOAD_NODE_POINT\n');
 for i = 1:nnodesDRM  
@@ -77,6 +89,9 @@ for i = 1:nnodesDRM
     fprintf(fid,'%d,2,%d,1.0,0,0,0,0\n',DRM_Node_Data(i),i+nnodesDRM);
     fprintf(fid,'%d,3,%d,1.0,0,0,0,0\n',DRM_Node_Data(i),i+nnodesDRM*2);
 end
+
+disp('LS-DYNA nnodal force definition completed')
+
 fclose(fid);
 
 end
